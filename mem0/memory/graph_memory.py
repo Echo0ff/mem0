@@ -130,22 +130,28 @@ class MemoryGraph:
 
     def delete_all(self, filters):
         # Build node properties for filtering
-        node_props = ["user_id: $user_id"]
+        node_props = []
+        params = {}
+        
+        if filters.get("user_id"):
+            node_props.append("user_id: $user_id")
+            params["user_id"] = filters["user_id"]
         if filters.get("agent_id"):
             node_props.append("agent_id: $agent_id")
+            params["agent_id"] = filters["agent_id"]
         if filters.get("run_id"):
             node_props.append("run_id: $run_id")
+            params["run_id"] = filters["run_id"]
+        
+        if not node_props:
+            raise ValueError("At least one filter (user_id, agent_id, or run_id) is required")
+            
         node_props_str = ", ".join(node_props)
 
         cypher = f"""
         MATCH (n {self.node_label} {{{node_props_str}}})
         DETACH DELETE n
         """
-        params = {"user_id": filters["user_id"]}
-        if filters.get("agent_id"):
-            params["agent_id"] = filters["agent_id"]
-        if filters.get("run_id"):
-            params["run_id"] = filters["run_id"]
         self.graph.query(cypher, params=params)
 
     def get_all(self, filters, limit=100):

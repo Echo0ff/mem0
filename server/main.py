@@ -15,43 +15,63 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(
 load_dotenv()
 
 
-POSTGRES_HOST = os.environ.get("POSTGRES_HOST", "postgres")
-POSTGRES_PORT = os.environ.get("POSTGRES_PORT", "5432")
-POSTGRES_DB = os.environ.get("POSTGRES_DB", "postgres")
-POSTGRES_USER = os.environ.get("POSTGRES_USER", "postgres")
-POSTGRES_PASSWORD = os.environ.get("POSTGRES_PASSWORD", "postgres")
-POSTGRES_COLLECTION_NAME = os.environ.get("POSTGRES_COLLECTION_NAME", "memories")
+# Milvus configuration
+MILVUS_HOST = os.environ.get("MILVUS_HOST", "milvus-standalone")
+MILVUS_PORT = os.environ.get("MILVUS_PORT", "19530")
+MILVUS_COLLECTION_NAME = os.environ.get("MILVUS_COLLECTION_NAME", "memories")
 
+# Neo4j configuration
 NEO4J_URI = os.environ.get("NEO4J_URI", "bolt://neo4j:7687")
 NEO4J_USERNAME = os.environ.get("NEO4J_USERNAME", "neo4j")
 NEO4J_PASSWORD = os.environ.get("NEO4J_PASSWORD", "mem0graph")
 
-MEMGRAPH_URI = os.environ.get("MEMGRAPH_URI", "bolt://localhost:7687")
-MEMGRAPH_USERNAME = os.environ.get("MEMGRAPH_USERNAME", "memgraph")
-MEMGRAPH_PASSWORD = os.environ.get("MEMGRAPH_PASSWORD", "mem0graph")
+# GLM-4 configuration
+GLM_API_KEY = os.environ.get("GLM_API_KEY")
+GLM_BASE_URL = os.environ.get("GLM_BASE_URL", "https://open.bigmodel.cn/api/paas/v4")
+GLM_MODEL = os.environ.get("GLM_MODEL", "glm-4-flash-250414")
 
-OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY")
+# SiliconFlow Embedding configuration
+SILICONFLOW_API_KEY = os.environ.get("SILICONFLOW_API_KEY")
+SILICONFLOW_BASE_URL = os.environ.get("SILICONFLOW_BASE_URL", "https://api.siliconflow.cn/v1")
+EMBEDDING_MODEL = os.environ.get("EMBEDDING_MODEL", "BAAI/bge-large-zh-v1.5")
+
 HISTORY_DB_PATH = os.environ.get("HISTORY_DB_PATH", "/app/history/history.db")
 
+# 不再需要设置全局环境变量，通过配置参数传递
+
+# 使用 OpenAI provider 但配置自定义 base URL
 DEFAULT_CONFIG = {
     "version": "v1.1",
     "vector_store": {
-        "provider": "pgvector",
+        "provider": "milvus",
         "config": {
-            "host": POSTGRES_HOST,
-            "port": int(POSTGRES_PORT),
-            "dbname": POSTGRES_DB,
-            "user": POSTGRES_USER,
-            "password": POSTGRES_PASSWORD,
-            "collection_name": POSTGRES_COLLECTION_NAME,
+            "url": f"http://{MILVUS_HOST}:{MILVUS_PORT}",
+            "collection_name": MILVUS_COLLECTION_NAME,
+            "embedding_model_dims": 1024,  # BAAI/bge-large-zh-v1.5 model outputs 1024 dimensions
         },
     },
     "graph_store": {
         "provider": "neo4j",
         "config": {"url": NEO4J_URI, "username": NEO4J_USERNAME, "password": NEO4J_PASSWORD},
     },
-    "llm": {"provider": "openai", "config": {"api_key": OPENAI_API_KEY, "temperature": 0.2, "model": "gpt-4o"}},
-    "embedder": {"provider": "openai", "config": {"api_key": OPENAI_API_KEY, "model": "text-embedding-3-small"}},
+    "llm": {
+        "provider": "openai",
+        "config": {
+            "api_key": GLM_API_KEY or "sk-dummy-key",
+            "model": GLM_MODEL,  # 使用实际的 GLM 模型名称
+            "temperature": 0.2,
+            "openai_base_url": GLM_BASE_URL,  # 指定 GLM API 的 base URL
+        }
+    },
+    "embedder": {
+        "provider": "openai",
+        "config": {
+            "api_key": SILICONFLOW_API_KEY or "sk-dummy-key",
+            "model": EMBEDDING_MODEL,  # 使用实际的 embedding 模型名称
+            "openai_base_url": SILICONFLOW_BASE_URL,  # 指定 SiliconFlow API 的 base URL
+            "embedding_dims": 1024,  # Explicitly set to match BAAI/bge-large-zh-v1.5 model dimensions
+        }
+    },
     "history_db_path": HISTORY_DB_PATH,
 }
 
@@ -90,8 +110,25 @@ class SearchRequest(BaseModel):
 def set_config(config: Dict[str, Any]):
     """Set memory configuration."""
     global MEMORY_INSTANCE
-    MEMORY_INSTANCE = Memory.from_config(config)
-    return {"message": "Configuration set successfully"}
+    try:
+        # Merge with default config to ensure all required fields are present
+        merged_config = DEFAULT_CONFIG.copy()
+        
+        # Update with provided config
+        for key, value in config.items():
+            if key in merged_config:
+                if isinstance(value, dict) and isinstance(merged_config[key], dict):
+                    merged_config[key].update(value)
+                else:
+                    merged_config[key] = value
+            else:
+                merged_config[key] = value
+                
+        MEMORY_INSTANCE = Memory.from_config(merged_config)
+        return {"message": "Configuration set successfully"}
+    except Exception as e:
+        logging.exception("Error in set_config:")
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @app.post("/memories", summary="Create memories")
