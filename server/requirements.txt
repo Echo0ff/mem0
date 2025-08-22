@@ -4,3 +4,6 @@ pydantic==2.10.4
 mem0ai>=0.1.48
 python-dotenv==1.0.1
 pymilvus>=2.6.0
+psycopg2-binary==2.9.9
+sqlalchemy==2.0.36
+alembic==1.14.0
