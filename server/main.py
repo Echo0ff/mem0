@@ -8,6 +8,7 @@ from fastapi.responses import JSONResponse, RedirectResponse
 from pydantic import BaseModel, Field
 
 from mem0 import Memory
+from database import create_memory_with_pg_storage
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 
@@ -76,7 +77,13 @@ DEFAULT_CONFIG = {
 }
 
 
-MEMORY_INSTANCE = Memory.from_config(DEFAULT_CONFIG)
+# 根据环境变量选择存储类型
+STORAGE_TYPE = os.environ.get("STORAGE_TYPE", "sqlite")
+
+if STORAGE_TYPE.lower() == "postgresql":
+    MEMORY_INSTANCE = create_memory_with_pg_storage(DEFAULT_CONFIG)
+else:
+    MEMORY_INSTANCE = Memory.from_config(DEFAULT_CONFIG)
 
 app = FastAPI(
     title="Mem0 REST APIs",
