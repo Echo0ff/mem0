@@ -732,7 +732,7 @@ class Memory(MemoryBase):
 
         Args:
             memory_id (str): ID of the memory to update.
-            data (str): New content to update the memory with.
+            data (str or dict): New content to update the memory with.
 
         Returns:
             dict: Success message indicating the memory was updated.
@@ -742,6 +742,17 @@ class Memory(MemoryBase):
             {'message': 'Memory updated successfully!'}
         """
         capture_event("mem0.update", self, {"memory_id": memory_id, "sync_type": "sync"})
+
+        # Handle case where data is a dict (e.g., from API endpoint)
+        if isinstance(data, dict):
+            # Extract the actual content from the dict
+            if "content" in data:
+                data = data["content"]
+            elif "data" in data:
+                data = data["data"]
+            else:
+                # Convert dict to string representation if no specific content field
+                data = str(data)
 
         existing_embeddings = {data: self.embedding_model.embed(data, "update")}
 
@@ -883,6 +894,10 @@ class Memory(MemoryBase):
             logger.error(f"Error getting memory with ID {memory_id} during update.")
             raise ValueError(f"Error getting memory with ID {memory_id}. Please provide a valid 'memory_id'")
 
+        if existing_memory is None:
+            logger.error(f"Memory with ID {memory_id} not found.")
+            raise ValueError(f"Memory with ID {memory_id} not found. Please provide a valid 'memory_id'")
+
         prev_value = existing_memory.payload.get("data")
 
         new_metadata = deepcopy(metadata) if metadata is not None else {}
@@ -931,6 +946,10 @@ class Memory(MemoryBase):
     def _delete_memory(self, memory_id):
         logger.info(f"Deleting memory with {memory_id=}")
         existing_memory = self.vector_store.get(vector_id=memory_id)
+        if existing_memory is None:
+            logger.error(f"Memory with ID {memory_id} not found.")
+            raise ValueError(f"Memory with ID {memory_id} not found. Please provide a valid 'memory_id'")
+        
         prev_value = existing_memory.payload["data"]
         self.vector_store.delete(vector_id=memory_id)
         self.db.add_history(
@@ -1595,7 +1614,7 @@ class AsyncMemory(MemoryBase):
 
         Args:
             memory_id (str): ID of the memory to update.
-            data (str): New content to update the memory with.
+            data (str or dict): New content to update the memory with.
 
         Returns:
             dict: Success message indicating the memory was updated.
@@ -1605,6 +1624,17 @@ class AsyncMemory(MemoryBase):
             {'message': 'Memory updated successfully!'}
         """
         capture_event("mem0.update", self, {"memory_id": memory_id, "sync_type": "async"})
+
+        # Handle case where data is a dict (e.g., from API endpoint)
+        if isinstance(data, dict):
+            # Extract the actual content from the dict
+            if "content" in data:
+                data = data["content"]
+            elif "data" in data:
+                data = data["data"]
+            else:
+                # Convert dict to string representation if no specific content field
+                data = str(data)
 
         embeddings = await asyncio.to_thread(self.embedding_model.embed, data, "update")
         existing_embeddings = {data: embeddings}
@@ -1769,6 +1799,10 @@ class AsyncMemory(MemoryBase):
             logger.error(f"Error getting memory with ID {memory_id} during update.")
             raise ValueError(f"Error getting memory with ID {memory_id}. Please provide a valid 'memory_id'")
 
+        if existing_memory is None:
+            logger.error(f"Memory with ID {memory_id} not found.")
+            raise ValueError(f"Memory with ID {memory_id} not found. Please provide a valid 'memory_id'")
+
         prev_value = existing_memory.payload.get("data")
 
         new_metadata = deepcopy(metadata) if metadata is not None else {}
@@ -1820,6 +1854,10 @@ class AsyncMemory(MemoryBase):
     async def _delete_memory(self, memory_id):
         logger.info(f"Deleting memory with {memory_id=}")
         existing_memory = await asyncio.to_thread(self.vector_store.get, vector_id=memory_id)
+        if existing_memory is None:
+            logger.error(f"Memory with ID {memory_id} not found.")
+            raise ValueError(f"Memory with ID {memory_id} not found. Please provide a valid 'memory_id'")
+        
         prev_value = existing_memory.payload["data"]
 
         await asyncio.to_thread(self.vector_store.delete, vector_id=memory_id)
