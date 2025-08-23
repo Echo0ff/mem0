@@ -1,6 +1,6 @@
 import os
 from sqlalchemy import create_engine, Column, String, Text, Integer, DateTime
-from sqlalchemy.ext.declarative import declarative_base
+from sqlalchemy.orm import declarative_base
 from sqlalchemy.orm import sessionmaker
 from dotenv import load_dotenv
 

@@ -21,15 +21,11 @@ def setup_logging():
     
     # 根据环境配置日志
     if os.getenv("ENVIRONMENT") == "production":
-        # 生产环境：日志保存到文件
-        log_file_path = os.getenv("LOG_FILE_PATH", "/app/logs/mem0.log")
+        # 生产环境：仅输出到 stdout/stderr（交给 Docker 收集），避免文件句柄在多进程中的竞争
         logging.basicConfig(
             level=getattr(logging, log_level),
             format=log_format,
-            handlers=[
-                logging.FileHandler(log_file_path),
-                logging.StreamHandler()  # 同时输出到控制台
-            ]
+            handlers=[logging.StreamHandler()]
         )
     else:
         # 开发环境：只输出到控制台
@@ -46,10 +42,10 @@ MILVUS_HOST = os.environ.get("MILVUS_HOST", "milvus-standalone")
 MILVUS_PORT = os.environ.get("MILVUS_PORT", "19530")
 MILVUS_COLLECTION_NAME = os.environ.get("MILVUS_COLLECTION_NAME", "memories")
 
-# Neo4j configuration
+# Neo4j configuration (保持与 docker-compose.prod.yaml 的 NEO4J_AUTH 一致)
 NEO4J_URI = os.environ.get("NEO4J_URI", "bolt://neo4j:7687")
 NEO4J_USERNAME = os.environ.get("NEO4J_USERNAME", "neo4j")
-NEO4J_PASSWORD = os.environ.get("NEO4J_PASSWORD", "mem0graph")
+NEO4J_PASSWORD = os.environ.get("NEO4J_PASSWORD", "mem0_graph_password_2024")
 
 # GLM-4 configuration
 GLM_API_KEY = os.environ.get("GLM_API_KEY")
@@ -105,10 +101,14 @@ DEFAULT_CONFIG = {
 # 根据环境变量选择存储类型
 STORAGE_TYPE = os.environ.get("STORAGE_TYPE", "sqlite")
 
-if STORAGE_TYPE.lower() == "postgresql":
-    MEMORY_INSTANCE = create_memory_with_pg_storage(DEFAULT_CONFIG)
-else:
-    MEMORY_INSTANCE = Memory.from_config(DEFAULT_CONFIG)
+try:
+    if STORAGE_TYPE.lower() == "postgresql":
+        MEMORY_INSTANCE = create_memory_with_pg_storage(DEFAULT_CONFIG)
+    else:
+        MEMORY_INSTANCE = Memory.from_config(DEFAULT_CONFIG)
+except Exception as e:
+    logging.error("Failed to initialize MEMORY_INSTANCE", exc_info=True)
+    raise e
 
 app = FastAPI(
     title="Mem0 REST APIs",

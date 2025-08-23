@@ -6,15 +6,15 @@ services:
       context: ../..
       dockerfile: server/docker/prod.Dockerfile
     ports:
-      - "18888:8000"  # 避开现有端口
+      - "18888:8000"
     env_file:
       - ../.env.prod
     networks:
       - mem0_network
     volumes:
-      - ../logs:/app/logs                    # 日志文件持久化
-      - ../data/history:/app/history         # 历史数据持久化
-      - mem0_data:/app/data                 # 应用数据持久化
+      - ../logs:/app/logs
+      - ../history:/app/history
+      - mem0_data:/app/data
     depends_on:
       postgres:
         condition: service_healthy
@@ -22,11 +22,12 @@ services:
         condition: service_healthy
       milvus-standalone:
         condition: service_healthy
-    command: bash -c "cd /app && chmod +x docker/start.prod.sh && ./docker/start.prod.sh"
+    command: bash -c "cd /app && export ENVIRONMENT=production && chmod +x docker/start.prod.sh && ./docker/start.prod.sh"
     restart: unless-stopped
     environment:
       - PYTHONDONTWRITEBYTECODE=1
       - PYTHONUNBUFFERED=1
+    user: "0:0"
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/docs"]
       interval: 30s
@@ -38,7 +39,7 @@ services:
     image: ankane/pgvector:v0.5.1
     restart: unless-stopped
     ports:
-      - "15432:5432"  # 避开现有端口
+      - "15432:5432"
     shm_size: "128mb"
     networks:
       - mem0_network
@@ -60,8 +61,8 @@ services:
     image: neo4j:5.26.4
     restart: unless-stopped
     ports:
-      - "17474:7474"  # 避开现有端口
-      - "17687:7687"  # 避开现有端口
+      - "17474:7474"
+      - "17687:7687"
     networks:
       - mem0_network
     environment:
@@ -80,21 +81,18 @@ services:
       retries: 3
       start_period: 40s
 
-  # Milvus Dependencies
+  # Milvus Dependencies (修复配置)
   etcd:
-    container_name: milvus-etcd-prod
+    container_name: milvus-etcd
     image: quay.io/coreos/etcd:v3.5.18
-    restart: unless-stopped
     environment:
       - ETCD_AUTO_COMPACTION_MODE=revision
       - ETCD_AUTO_COMPACTION_RETENTION=1000
       - ETCD_QUOTA_BACKEND_BYTES=4294967296
       - ETCD_SNAPSHOT_COUNT=50000
     volumes:
-      - etcd_data:/etcd
-    command: etcd -advertise-client-urls=http://127.0.0.1:2379 -listen-client-urls http://0.0.0.0:2379 --data-dir /etcd
-    networks:
-      - mem0_network
+      - ${DOCKER_VOLUME_DIRECTORY:-.}/volumes/etcd:/etcd
+    command: etcd -advertise-client-urls=http://etcd:2379 -listen-client-urls http://0.0.0.0:2379 --data-dir /etcd
     healthcheck:
       test: ["CMD", "etcdctl", "endpoint", "health"]
       interval: 30s
@@ -102,20 +100,17 @@ services:
       retries: 3
 
   minio:
-    container_name: milvus-minio-prod
-    image: minio/minio:RELEASE.2024-12-18T13-15-44Z
-    restart: unless-stopped
+    container_name: milvus-minio
+    image: minio/minio:RELEASE.2024-05-28T17-19-04Z
     environment:
       MINIO_ACCESS_KEY: minioadmin
-      MINIO_SECRET_KEY: minioadmin_secure_2024
+      MINIO_SECRET_KEY: minioadmin
     ports:
-      - "19000:9000"  # 避开现有端口
-      - "19001:9001"  # 避开现有端口
+      - "19001:9001"
+      - "19000:9000"
     volumes:
-      - minio_data:/minio_data
+      - ${DOCKER_VOLUME_DIRECTORY:-.}/volumes/minio:/minio_data
     command: minio server /minio_data --console-address ":9001"
-    networks:
-      - mem0_network
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
       interval: 30s
@@ -123,28 +118,122 @@ services:
       retries: 3
 
   milvus-standalone:
-    container_name: milvus-standalone-prod
-    image: milvusdb/milvus:v2.6.0
-    restart: unless-stopped
+    container_name: milvus-standalone
+    image: milvusdb/milvus:v2.5.17
     command: ["milvus", "run", "standalone"]
+    security_opt:
+      - seccomp:unconfined
     environment:
+      MINIO_REGION: us-east-1
       ETCD_ENDPOINTS: etcd:2379
       MINIO_ADDRESS: minio:9000
     volumes:
-      - milvus_data:/var/lib/milvus
-    ports:
-      - "19530:19530"  # 避开现有端口
-      - "19091:9091"   # 避开现有端口
-    depends_on:
-      - "etcd"
-      - "minio"
-    networks:
-      - mem0_network
+      - ${DOCKER_VOLUME_DIRECTORY:-.}/volumes/milvus:/var/lib/milvus
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:9091/healthz"]
       interval: 30s
+      start_period: 90s
       timeout: 20s
-      retries: 5
+      retries: 3
+    ports:
+      - "19530:19530"
+      - "19091:9091"
+    depends_on:
+      - "etcd"
+      - "minio"
+  # etcd:
+  #   container_name: milvus-etcd-prod
+  #   image: quay.io/coreos/etcd:v3.5.18
+  #   restart: unless-stopped
+  #   environment:
+  #     - ETCD_AUTO_COMPACTION_MODE=revision
+  #     - ETCD_AUTO_COMPACTION_RETENTION=1000
+  #     - ETCD_QUOTA_BACKEND_BYTES=4294967296
+  #     - ETCD_SNAPSHOT_COUNT=50000
+  #     # 添加关键配置
+  #     - ETCD_NAME=etcd
+  #     - ETCD_INITIAL_ADVERTISE_PEER_URLS=http://etcd:2380
+  #     - ETCD_LISTEN_PEER_URLS=http://0.0.0.0:2380
+  #     - ETCD_LISTEN_CLIENT_URLS=http://0.0.0.0:2379
+  #     - ETCD_ADVERTISE_CLIENT_URLS=http://etcd:2379
+  #     - ETCD_INITIAL_CLUSTER=etcd=http://etcd:2380
+  #     - ETCD_INITIAL_CLUSTER_STATE=new
+  #     - ETCD_INITIAL_CLUSTER_TOKEN=etcd-cluster
+  #   volumes:
+  #     - etcd_data:/etcd
+  #   command: etcd
+  #   ports:
+  #     - "12379:2379"
+  #     - "12380:2380"
+  #   networks:
+  #     - mem0_network
+  #   healthcheck:
+  #     test: ["CMD", "etcdctl", "--endpoints=http://localhost:2379", "endpoint", "health"]
+  #     interval: 30s
+  #     timeout: 20s
+  #     retries: 3
+
+  # minio:
+  #   container_name: milvus-minio-prod
+  #   image: minio/minio:RELEASE.2024-12-18T13-15-44Z
+  #   restart: unless-stopped
+  #   environment:
+  #     MINIO_ACCESS_KEY: minioadmin
+  #     MINIO_SECRET_KEY: minioadmin
+  #     # 添加健康检查支持
+  #     MINIO_PROMETHEUS_AUTH_TYPE: public
+  #   ports:
+  #     - "19001:9001"
+  #     - "19000:9000"
+  #   volumes:
+  #     - minio_data:/minio_data
+  #   command: minio server /minio_data --console-address ":9001"
+  #   networks:
+  #     - mem0_network
+  #   healthcheck:
+  #     test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+  #     interval: 30s
+  #     timeout: 20s
+  #     retries: 3
+
+  # milvus-standalone:
+  #   container_name: milvus-standalone-prod
+  #   image: milvusdb/milvus:v2.6.0
+  #   restart: unless-stopped
+  #   command: ["milvus", "run", "standalone"]
+  #   security_opt:
+  #     - seccomp:unconfined
+  #   environment:
+  #     ETCD_ENDPOINTS: etcd:2379
+  #     MINIO_ADDRESS: minio:9000
+  #     # 修改消息队列类型
+  #     MQ_TYPE: rocksmq
+  #     # 添加其他重要配置
+  #     MINIO_ACCESS_KEY_ID: minioadmin
+  #     MINIO_SECRET_ACCESS_KEY: minioadmin
+  #     MINIO_USE_SSL: false
+  #     MINIO_BUCKET_NAME: milvus-bucket
+  #     # 性能优化配置
+  #     ROCKSMQ_PATH: /var/lib/milvus/rdb_data
+  #     COMMON_STORAGETYPE: minio
+  #   volumes:
+  #     - milvus_data:/var/lib/milvus
+  #   ports:
+  #     - "19530:19530"
+  #     - "19091:9091"
+  #   depends_on:
+  #     etcd:
+  #       condition: service_healthy
+  #     minio:
+  #       condition: service_healthy
+  #   networks:
+  #     - mem0_network
+  #   healthcheck:
+  #     test: ["CMD", "curl", "-f", "http://localhost:9091/healthz"]
+  #     interval: 30s
+  #     timeout: 20s
+  #     retries: 5
+  #     start_period: 60s
 
 networks:
   mem0_network:
