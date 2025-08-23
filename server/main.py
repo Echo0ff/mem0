@@ -10,10 +10,35 @@ from pydantic import BaseModel, Field
 from mem0 import Memory
 from database import create_memory_with_pg_storage
 
-logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
-
 # Load environment variables
 load_dotenv()
+
+# 配置日志
+def setup_logging():
+    """配置应用日志"""
+    log_level = os.getenv("LOG_LEVEL", "INFO").upper()
+    log_format = "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+    
+    # 根据环境配置日志
+    if os.getenv("ENVIRONMENT") == "production":
+        # 生产环境：日志保存到文件
+        log_file_path = os.getenv("LOG_FILE_PATH", "/app/logs/mem0.log")
+        logging.basicConfig(
+            level=getattr(logging, log_level),
+            format=log_format,
+            handlers=[
+                logging.FileHandler(log_file_path),
+                logging.StreamHandler()  # 同时输出到控制台
+            ]
+        )
+    else:
+        # 开发环境：只输出到控制台
+        logging.basicConfig(
+            level=getattr(logging, log_level),
+            format=log_format
+        )
+
+setup_logging()
 
 
 # Milvus configuration
