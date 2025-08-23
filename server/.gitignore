@@ -1,0 +1,31 @@
+# 生产环境敏感文件
+.env.prod
+*.log
+
+# 数据目录
+data/
+logs/
+backups/
+
+# Python缓存
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# Docker相关
+.dockerignore
+
+# IDE文件
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# 系统文件
+.DS_Store
+Thumbs.db
+
+# 临时文件
+*.tmp
+*.temp
