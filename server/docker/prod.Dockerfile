@@ -3,10 +3,14 @@ FROM python:3.12-slim
 # 设置工作目录
 WORKDIR /app
 
-# 安装系统依赖
+# 安装系统依赖 - 优化版本
 RUN apt-get update && apt-get install -y \
     curl \
-    && rm -rf /var/lib/apt/lists/*
+    gcc \
+    g++ \
+    build-essential \
+    && rm -rf /var/lib/apt/lists/* \
+    && apt-get clean
 
 # 安装uv
 RUN curl -LsSf https://astral.sh/uv/install.sh | sh
@@ -28,20 +32,24 @@ RUN uv pip install --system -e .[graph]
 WORKDIR /app
 COPY server .
 
-# 创建日志目录
-RUN mkdir -p /app/logs
+# 创建必要的目录和设置权限
+RUN mkdir -p /app/logs /app/history /app/data && \
+    chmod -R 755 /app && \
+    chown -R root:root /app
 
-# 创建非root用户（生产环境安全实践）
-RUN groupadd -r mem0 && useradd -r -g mem0 mem0
-RUN chown -R mem0:mem0 /app
-USER mem0
+# 使用 root 用户运行
+USER root
 
-# 健康检查
-HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
-    CMD curl -f http://localhost:8000/docs || exit 1
+# 健康检查 - 修复路径
+HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
+    CMD curl -f http://localhost:8000/health || curl -f http://localhost:8000/docs || exit 1
 
 # 暴露端口
 EXPOSE 8000
 
-# 默认启动命令（生产模式）
-CMD ["gunicorn", "main:app", "--workers", "4", "--worker-class", "uvicorn.workers.UvicornWorker", "--bind", "0.0.0.0:8000", "--access-logfile", "/app/logs/access.log", "--error-logfile", "/app/logs/error.log", "--log-level", "info"]
+# 添加启动脚本
+COPY docker/start.prod.sh /app/docker/start.prod.sh
+RUN chmod +x /app/docker/start.prod.sh
+
+# 默认启动命令
+CMD ["/app/docker/start.prod.sh"]

@@ -2,7 +2,7 @@ import logging
 import uuid
 from typing import Any, Dict, List, Optional
 from sqlalchemy import create_engine, Column, String, Text, Integer, DateTime
-from sqlalchemy.ext.declarative import declarative_base
+from sqlalchemy.orm import declarative_base
 from sqlalchemy.orm import sessionmaker, Session
 from datetime import datetime
 import os
