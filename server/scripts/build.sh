@@ -53,13 +53,13 @@ echo "🛑 停止现有服务..."
 docker compose -f docker/docker-compose.prod.yaml down || true
 
 # 清理旧的镜像（可选）
-read -p "是否清理旧的 Docker 镜像? (y/N): " -n 1 -r
-echo
-if [[ $REPLY =~ ^[Yy]$ ]]; then
-    echo "🧹 清理旧镜像..."
-    docker compose -f docker/docker-compose.prod.yaml down --rmi all || true
-    docker system prune -f || true
-fi
+# read -p "是否清理旧的 Docker 镜像? (y/N): " -n 1 -r
+# echo
+# if [[ $REPLY =~ ^[Yy]$ ]]; then
+#     echo "🧹 清理旧镜像..."
+#     docker compose -f docker/docker-compose.prod.yaml down --rmi all || true
+#     docker system prune -f || true
+# fi
 
 # 构建Docker镜像
 echo "🔨 构建Docker镜像..."
