@@ -161,6 +161,18 @@ services:
       - "minio"
     networks:
       - mem0_network
+  
+  attu:
+    image: zilliz/attu:latest
+    container_name: mem0-attu-prod
+    networks:
+      - mem0_network
+    environment:
+      - MILVUS_URL=milvus-standalone:19530
+    ports:
+      - "28090:3000"
+    depends_on:
+      - milvus-standalone
 
 networks:
   mem0_network:
