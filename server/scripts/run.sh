@@ -29,7 +29,7 @@ fi
 
 # 检查关键端口是否被占用
 echo "🔍 检查端口占用情况..."
-ports_to_check=(18888 15432 17474 17687 19530 19091 19000 19001 12379)
+ports_to_check=(18888 15432 17474 17687 19530 9091 9000 9001 12379 12380)
 occupied_ports=()
 
 for port in "${ports_to_check[@]}"; do
@@ -97,7 +97,7 @@ fi
 
 # 第二阶段: 数据库服务
 echo "🗄️  启动数据库服务 (postgres, neo4j, milvus)..."
-docker compose -f docker/docker-compose.prod.yaml up -d postgres neo4j milvus-standalone
+docker compose -f docker/docker-compose.prod.yaml --env-file .env.prod up -d postgres neo4j milvus-standalone
 
 # 等待数据库服务就绪
 echo "⏳ 等待数据库服务就绪..."
@@ -180,4 +180,3 @@ echo "  - 🔍 Milvus: localhost:19530"
 echo ""
 echo "📋 管理命令:"
 echo "  - 查看所有日志: docker compose -f docker/docker-compose.prod.yaml logs -f"
-echo "  - 查
