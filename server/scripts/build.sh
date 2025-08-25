@@ -63,7 +63,7 @@ docker compose -f docker/docker-compose.prod.yaml down || true
 
 # 构建Docker镜像
 echo "🔨 构建Docker镜像..."
-docker compose -f docker/docker-compose.prod.yaml build --no-cache
+docker compose -f docker/docker-compose.prod.yaml --env-file .env.prod build --no-cache
 
 # 验证镜像构建
 echo "🔍 验证镜像..."

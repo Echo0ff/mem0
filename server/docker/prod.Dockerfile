@@ -24,6 +24,7 @@ RUN sed -i 's|deb.debian.org|mirrors.aliyun.com|g' /etc/apt/sources.list.d/debia
        libpq-dev \
        libjpeg-dev \
        zlib1g-dev \
+       netcat-openbsd \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
