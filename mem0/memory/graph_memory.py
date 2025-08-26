@@ -506,8 +506,8 @@ class MemoryGraph:
             dest_embedding = self.embedding_model.embed(destination)
 
             # search for the nodes with the closest embeddings
-            source_node_search_result = self._search_source_node(source_embedding, filters, threshold=0.9)
-            destination_node_search_result = self._search_destination_node(dest_embedding, filters, threshold=0.9)
+            source_node_search_result = self._search_source_node(source_embedding, filters, threshold=0.75)
+            destination_node_search_result = self._search_destination_node(dest_embedding, filters, threshold=0.75)
 
             # TODO: Create a cypher query and common params for all the cases
             if not destination_node_search_result and source_node_search_result:
