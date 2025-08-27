@@ -376,8 +376,6 @@ class Memory(MemoryBase):
                 retrieved_old_memory, new_retrieved_facts, self.config.custom_update_memory_prompt
             )
 
-            logger.info(f"--- Final Reasoning Prompt ---\n{function_calling_prompt}")
-
             try:
                 response: str = self.llm.generate_response(
                     messages=[{"role": "user", "content": function_calling_prompt}],
@@ -676,18 +674,8 @@ class Memory(MemoryBase):
             graph_entities = future_graph_entities.result() if future_graph_entities else None
 
             logger.info(
-                f"Retrieval complete. Vector store found {len(original_memories)} memories. "
-                f"Graph store found {len(graph_entities) if graph_entities else 0} entities."
+                f"[Retrieval] Vector store: {len(original_memories)} memories | Graph store: {len(graph_entities) if graph_entities else 0} entities."
             )
-
-            # --- 新增的最终结果日志 ---
-            import json
-            final_combined_result = {
-                "results": original_memories,
-                "relations": graph_entities,
-            }
-            logger.info(f"--- Final Combined Retrieval Result ---\n{json.dumps(final_combined_result, indent=2, ensure_ascii=False)}")
-            # --- 日志结束 ---
 
         if self.enable_graph:
             return {"results": original_memories, "relations": graph_entities}
