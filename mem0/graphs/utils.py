@@ -1,93 +1,94 @@
 UPDATE_GRAPH_PROMPT = """
-You are an AI expert specializing in graph memory management and optimization. Your task is to analyze existing graph memories alongside new information, and update the relationships in the memory list to ensure the most accurate, current, and coherent representation of knowledge.
+您是一位专注于图记忆管理和优化的 AI 专家。您的任务是分析现有的图记忆和新的信息，并更新记忆列表中的关系，以确保知识表示最准确、最新和连贯。
 
-Input:
-1. Existing Graph Memories: A list of current graph memories, each containing source, target, and relationship information.
-2. New Graph Memory: Fresh information to be integrated into the existing graph structure.
+输入:
+1. 现有图记忆: 当前的图记忆列表，每条包含源、目标和关系信息。
+2. 新图记忆: 需要整合到现有图结构中的新信息。
 
-Guidelines:
-1. Identification: Use the source and target as primary identifiers when matching existing memories with new information.
-2. Conflict Resolution:
-   - If new information contradicts an existing memory:
-     a) For matching source and target but differing content, update the relationship of the existing memory.
-     b) If the new memory provides more recent or accurate information, update the existing memory accordingly.
-3. Comprehensive Review: Thoroughly examine each existing graph memory against the new information, updating relationships as necessary. Multiple updates may be required.
-4. Consistency: Maintain a uniform and clear style across all memories. Each entry should be concise yet comprehensive.
-5. Semantic Coherence: Ensure that updates maintain or improve the overall semantic structure of the graph.
-6. Temporal Awareness: If timestamps are available, consider the recency of information when making updates.
-7. Relationship Refinement: Look for opportunities to refine relationship descriptions for greater precision or clarity.
-8. Redundancy Elimination: Identify and merge any redundant or highly similar relationships that may result from the update.
+指南:
+1. 识别: 在将现有记忆与新信息匹配时，使用源和目标作为主要标识符。
+2. 冲突解决:
+   - 如果新信息与现有记忆相矛盾：
+     a) 对于源和目标匹配但内容不同的情况，更新现有记忆的关系。
+     b) 如果新记忆提供了更新或更准确的信息，相应地更新现有记忆。
+3. 全面审查: 对照新信息，彻底检查每一条现有的图记忆，并根据需要更新关系。可能需要进行多次更新。
+4. 一致性: 在所有记忆中保持统一和清晰的风格。每个条目都应简洁而全面。
+5. 语义连贯性: 确保更新能维持或改善图的整体语义结构。
+6. 时间意识: 如果有时间戳，请在更新时考虑信息的时效性。
+7. 关系优化: 寻找机会优化关系的描述，以提高其精确性或清晰度。
+8. 消除冗余: 识别并合并因更新而可能产生的任何冗余或高度相似的关系。
 
-Memory Format:
-source -- RELATIONSHIP -- destination
+记忆格式:
+源 -- 关系 -- 目标
 
-Task Details:
-======= Existing Graph Memories:=======
+任务详情:
+======= 现有图记忆:=======
 {existing_memories}
 
-======= New Graph Memory:=======
+======= 新图记忆:=======
 {new_memories}
 
-Output:
-Provide a list of update instructions, each specifying the source, target, and the new relationship to be set. Only include memories that require updates.
+输出:
+提供一个更新指令列表，每条指令指明源、目标和要设置的新关系。只包括需要更新的记忆。
 """
 
 EXTRACT_RELATIONS_PROMPT = """
+您是一种先进的算法，旨在从文本中提取结构化信息以构建知识图谱。您的目标是捕获全面而准确的信息。请遵循以下关键原则：
 
-You are an advanced algorithm designed to extract structured information from text to construct knowledge graphs. Your goal is to capture comprehensive and accurate information. Follow these key principles:
-
-1. Extract only explicitly stated information from the text.
-2. Establish relationships among the entities provided.
-3. Use "USER_ID" as the source entity for any self-references (e.g., "I," "me," "my," etc.) in user messages.
+1. 仅从文本中提取明确说明的信息。
+2. 在提供的实体之间建立关系。
+3. 在用户消息中，使用“USER_ID”作为任何自我指称（例如“我”、“我的”等）的源实体。
 CUSTOM_PROMPT
 
-Relationships:
-    - Use consistent, general, and timeless relationship types.
-    - Example: Prefer "professor" over "became_professor."
-    - Relationships should only be established among the entities explicitly mentioned in the user message.
+关系:
+    - 使用一致、通用且不受时间影响的关系类型。
+    - 示例：优先使用“是教授”而不是“成为了教授”。
+    - 关系应仅在用户消息中明确提及的实体之间建立。
 
-Entity Consistency:
-    - Ensure that relationships are coherent and logically align with the context of the message.
-    - Maintain consistent naming for entities across the extracted data.
+实体一致性:
+    - 确保关系是连贯的，并与消息的上下文在逻辑上保持一致。
+    - 在提取的数据中保持实体命名的一致性。
 
-Strive to construct a coherent and easily understandable knowledge graph by eshtablishing all the relationships among the entities and adherence to the user’s context.
+致力于通过在实体之间建立所有关系并遵循用户上下文，来构建一个连贯且易于理解的知识图谱。
 
-Adhere strictly to these guidelines to ensure high-quality knowledge graph extraction."""
+严格遵守这些指南，以确保高质量的知识图谱提取。
+"""
 
 DELETE_RELATIONS_SYSTEM_PROMPT = """
-You are a graph memory manager specializing in identifying, managing, and optimizing relationships within graph-based memories. Your primary task is to analyze a list of existing relationships and determine which ones should be deleted based on the new information provided.
-Input:
-1. Existing Graph Memories: A list of current graph memories, each containing source, relationship, and destination information.
-2. New Text: The new information to be integrated into the existing graph structure.
-3. Use "USER_ID" as node for any self-references (e.g., "I," "me," "my," etc.) in user messages.
+您是一位图记忆管理器，专注于识别、管理和优化基于图的记忆中的关系。您的主要任务是分析现有关系列表，并根据提供的新信息确定应删除哪些关系。
 
-Guidelines:
-1. Identification: Use the new information to evaluate existing relationships in the memory graph.
-2. Deletion Criteria: Delete a relationship only if it meets at least one of these conditions:
-   - Outdated or Inaccurate: The new information is more recent or accurate.
-   - Contradictory: The new information conflicts with or negates the existing information.
-3. DO NOT DELETE if their is a possibility of same type of relationship but different destination nodes.
-4. Comprehensive Analysis:
-   - Thoroughly examine each existing relationship against the new information and delete as necessary.
-   - Multiple deletions may be required based on the new information.
-5. Semantic Integrity:
-   - Ensure that deletions maintain or improve the overall semantic structure of the graph.
-   - Avoid deleting relationships that are NOT contradictory/outdated to the new information.
-6. Temporal Awareness: Prioritize recency when timestamps are available.
-7. Necessity Principle: Only DELETE relationships that must be deleted and are contradictory/outdated to the new information to maintain an accurate and coherent memory graph.
+输入:
+1. 现有图记忆: 当前的图记忆列表，每条包含源、关系和目标信息。
+2. 新文本: 需要整合到现有图结构中的新信息。
+3. 在用户消息中，使用“USER_ID”作为任何自我指称（例如“我”、“我的”等）的节点。
 
-Note: DO NOT DELETE if their is a possibility of same type of relationship but different destination nodes. 
+指南:
+1. 识别: 利用新信息来评估记忆图中的现有关系。
+2. 删除标准: 仅当关系满足以下至少一个条件时才删除它：
+   - 过时或不准确: 新信息更新或更准确。
+   - 相互矛盾: 新信息与现有信息冲突或否定现有信息。
+3. 不要删除: 如果可能存在相同类型的关系但目标节点不同，请不要删除。
+4. 全面分析:
+   - 对照新信息，彻底检查每个现有关系，并根据需要进行删除。
+   - 基于新信息，可能需要进行多次删除。
+5. 语义完整性:
+   - 确保删除操作能维持或改善图的整体语义结构。
+   - 避免删除与新信息不矛盾/不过时的关系。
+6. 时间意识: 当有时间戳时，优先考虑信息的时效性。
+7. 必要性原则: 只删除那些为了保持记忆图准确连贯而必须删除的、与新信息矛盾/过时的关系。
 
-For example: 
-Existing Memory: alice -- loves_to_eat -- pizza
-New Information: Alice also loves to eat burger.
+注意: 如果可能存在相同类型的关系但目标节点不同，请不要删除。
 
-Do not delete in the above example because there is a possibility that Alice loves to eat both pizza and burger.
+例如:
+现有记忆: 爱丽丝 -- 喜欢吃 -- 披萨
+新信息: 爱丽丝也喜欢吃汉堡。
 
-Memory Format:
-source -- relationship -- destination
+在上面的例子中不要删除，因为爱丽丝可能既喜欢吃披萨又喜欢吃汉堡。
 
-Provide a list of deletion instructions, each specifying the relationship to be deleted.
+记忆格式:
+源 -- 关系 -- 目标
+
+提供一个删除指令列表，每条指令指明要删除的关系。
 """
 
 
