@@ -737,7 +737,7 @@ class Memory(MemoryBase):
             if additional_metadata:
                 memory_item_dict["metadata"] = additional_metadata
 
-            if threshold is None or mem.score >= threshold:
+            if threshold is None or mem.score <= threshold:
                 original_memories.append(memory_item_dict)
 
         return original_memories
