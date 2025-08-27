@@ -119,17 +119,16 @@ class MemoryGraph:
                 - "contexts": List of search results from the base data store.
                 - "entities": List of related graph data based on the query.
         """
-        logger.info("--- Entering search method in MemoryGraph ---")
-        logger.info(f"Search query: '{query}'")
+        logger.info(f"Graph search start | query_len={len(query)}")
 
         entity_type_map = self._retrieve_nodes_from_data(query, filters)
-        logger.info(f"LLM extracted entities: {list(entity_type_map.keys())}")
+        logger.info(f"Entities extracted: {len(entity_type_map)}")
 
         if not entity_type_map:
-            logger.warning("No entities extracted from query. Graph search will be empty.")
+            logger.warning("Graph search: no entities extracted.")
 
         search_output = self._search_graph_db(node_list=list(entity_type_map.keys()), filters=filters, limit=limit)
-        logger.info(f"_search_graph_db returned {len(search_output)} relations.")
+        logger.info(f"Graph relations found: {len(search_output)}")
 
         if not search_output:
             logger.info("--- Exiting search method: No relations found in DB. ---")
@@ -142,23 +141,13 @@ class MemoryGraph:
 
         tokenized_query = query.split(" ")
         reranked_results = bm25.get_top_n(tokenized_query, search_outputs_sequence, n=5)
-        logger.info(f"BM25 re-ranking produced {len(reranked_results)} results.")
-        if reranked_results:
-            logger.info(f"Top re-ranked result: {reranked_results[0]}")
+        logger.info(f"BM25 re-ranked results: {len(reranked_results)}")
 
         search_results = []
         for item in reranked_results:
             search_results.append({"source": item[0], "relationship": item[1], "destination": item[2]})
 
-        # --- 新增的详细日志 ---
-        logger.info(f"图数据库检索到的最终结果 (共 {len(search_results)} 条):")
-        for i, result in enumerate(search_results[:5]): # 最多打印前5条
-            logger.info(f"  - 结果 {i+1}: {result}")
-        if len(search_results) > 5:
-            logger.info("  - ... (更多结果未打印)")
-        # --- 日志结束 ---
-
-        logger.info(f"--- Exiting search method: Returning {len(search_results)} final results. ---")
+        logger.info(f"Graph search done | results={len(search_results)}")
 
         return search_results
 
@@ -275,11 +264,11 @@ class MemoryGraph:
             {"role": "user", "content": data},
         ]
 
-        logger.info(f"Sending following payload to LLM for entity extraction: {messages_to_llm}")
+        logger.info(f"LLM entity extraction request | input_len={len(data)}")
         
         response_str = self.llm.generate_response(messages=messages_to_llm)
 
-        logger.info(f"Received raw response from LLM: {response_str}")
+        logger.info(f"LLM entity extraction response | resp_len={len(response_str)}")
 
         entity_type_map = {}
         try:
@@ -294,7 +283,8 @@ class MemoryGraph:
             logger.error(f"Failed to parse LLM response for entity extraction: {e}", exc_info=True)
 
         entity_type_map = {k.lower().replace(" ", "_"): v.lower().replace(" ", "_") for k, v in entity_type_map.items()}
-        logger.info(f"Successfully parsed entities: {list(entity_type_map.keys())}")
+        sample_keys = list(entity_type_map.keys())[:3]
+        logger.info(f"Entities parsed: count={len(entity_type_map)} sample={sample_keys}")
         return entity_type_map
 
     def _establish_nodes_relations_from_data(self, data, filters, entity_type_map):
