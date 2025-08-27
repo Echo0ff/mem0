@@ -159,7 +159,7 @@ class SearchRequest(BaseModel):
     agent_id: Optional[str] = None
     filters: Optional[Dict[str, Any]] = None
     limit: Optional[int] = 50
-    threshold: Optional[float] = 1
+    threshold: Optional[float] = 1.4
 
 
 @app.post("/configure", summary="Configure Mem0")
