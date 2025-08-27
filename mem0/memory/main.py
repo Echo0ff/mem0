@@ -673,6 +673,10 @@ class Memory(MemoryBase):
             original_memories = future_memories.result()
             graph_entities = future_graph_entities.result() if future_graph_entities else None
 
+            logger.info(
+                f"[Retrieval] Vector store: {len(original_memories)} memories | Graph store: {len(graph_entities) if graph_entities else 0} entities."
+            )
+
         if self.enable_graph:
             return {"results": original_memories, "relations": graph_entities}
 
@@ -721,7 +725,7 @@ class Memory(MemoryBase):
             if additional_metadata:
                 memory_item_dict["metadata"] = additional_metadata
 
-            if threshold is None or mem.score >= threshold:
+            if threshold is None or mem.score <= threshold:
                 original_memories.append(memory_item_dict)
 
         return original_memories

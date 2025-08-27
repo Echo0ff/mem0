@@ -55,6 +55,19 @@ class MemoryGraph:
             except Exception:
                 pass
 
+            # Safely add vector index
+            try:
+                self.graph.query(
+                    f"CREATE VECTOR INDEX `entity_embedding_index` IF NOT EXISTS FOR (n{self.node_label}) ON (n.embedding) "
+                    "OPTIONS { indexConfig: { "
+                    "`vector.dimensions`: 1024, "
+                    "`vector.similarity_function`: 'cosine' "
+                    "} }"
+                )
+                logger.info("Successfully created or verified vector index.")
+            except Exception as e:
+                logger.warning(f"Could not create vector index, this may impact performance: {e}")
+
         # Default to openai if no specific provider is configured
         self.llm_provider = "openai"
         if self.config.llm and self.config.llm.provider:
@@ -106,10 +119,19 @@ class MemoryGraph:
                 - "contexts": List of search results from the base data store.
                 - "entities": List of related graph data based on the query.
         """
+        logger.info(f"Graph search start | query_len={len(query)}")
+
         entity_type_map = self._retrieve_nodes_from_data(query, filters)
-        search_output = self._search_graph_db(node_list=list(entity_type_map.keys()), filters=filters)
+        logger.info(f"Entities extracted: {len(entity_type_map)}")
+
+        if not entity_type_map:
+            logger.warning("Graph search: no entities extracted.")
+
+        search_output = self._search_graph_db(node_list=list(entity_type_map.keys()), filters=filters, limit=limit)
+        logger.info(f"Graph relations found: {len(search_output)}")
 
         if not search_output:
+            logger.info("--- Exiting search method: No relations found in DB. ---")
             return []
 
         search_outputs_sequence = [
@@ -119,12 +141,13 @@ class MemoryGraph:
 
         tokenized_query = query.split(" ")
         reranked_results = bm25.get_top_n(tokenized_query, search_outputs_sequence, n=5)
+        logger.info(f"BM25 re-ranked results: {len(reranked_results)}")
 
         search_results = []
         for item in reranked_results:
             search_results.append({"source": item[0], "relationship": item[1], "destination": item[2]})
 
-        logger.info(f"Returned {len(search_results)} search results")
+        logger.info(f"Graph search done | results={len(search_results)}")
 
         return search_results
 
@@ -197,38 +220,71 @@ class MemoryGraph:
         logger.info(f"Retrieved {len(final_results)} relationships")
 
         return final_results
-
+    
     def _retrieve_nodes_from_data(self, data, filters):
-        """Extracts all the entities mentioned in the query."""
-        _tools = [EXTRACT_ENTITIES_TOOL]
-        if self.llm_provider in ["azure_openai_structured", "openai_structured"]:
-            _tools = [EXTRACT_ENTITIES_STRUCT_TOOL]
-        search_results = self.llm.generate_response(
-            messages=[
-                {
-                    "role": "system",
-                    "content": f"You are a smart assistant who understands entities and their types in a given text. If user message contains self reference such as 'I', 'me', 'my' etc. then use {filters['user_id']} as the source entity. Extract all the entities from the text. ***DO NOT*** answer the question itself if the given text is a question.",
-                },
-                {"role": "user", "content": data},
-            ],
-            tools=_tools,
-        )
+        """Extracts all the entities mentioned in the query using a robust prompt and parsing logic."""
+        
+        # Note: This function relies on `self.llm` and `logger` being defined in the class instance.
+        # It also uses a utility function `remove_code_blocks`.
+        import json
+        import logging
+        from mem0.memory.utils import remove_code_blocks
+
+        logger = logging.getLogger(__name__)
+
+        system_prompt = f"""# 角色
+                你是一个专门用于从文本中提取实体和实体类型的结构化数据提取引擎。
+
+                # 指令
+                1. 你的唯一任务是分析文本，并以JSON格式返回提取的实体。
+                2. **绝对不能**包含除了JSON对象之外的任何解释、注释或额外文本。
+                3. 如果文本中包含“我”、“我的”等第一人称代词，必须将 `{filters['user_id']}` 也作为一个实体提取出来，实体类型为“用户”。
+                4. 返回的JSON对象必须包含一个名为 \"entities\" 的键，其值为一个对象列表，每个对象包含 \"entity\" 和 \"entity_type\" 两个键。
+
+                # 示例
+                - 用户输入: \"我最喜欢的歌手是周杰伦。\"
+                - 你的输出:
+                ```json
+                {{
+                    "entities": [
+                        {{
+                            "entity": "user_01",
+                            "entity_type": "用户"
+                        }},
+                        {{
+                            "entity": "周杰伦",
+                            "entity_type": "歌手"
+                        }}
+                    ]
+                }}
+                ```"""
+
+        messages_to_llm = [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": data},
+        ]
+
+        logger.info(f"LLM entity extraction request | input_len={len(data)}")
+        
+        response_str = self.llm.generate_response(messages=messages_to_llm)
+
+        logger.info(f"LLM entity extraction response | resp_len={len(response_str)}")
 
         entity_type_map = {}
-
         try:
-            for tool_call in search_results["tool_calls"]:
-                if tool_call["name"] != "extract_entities":
-                    continue
-                for item in tool_call["arguments"]["entities"]:
-                    entity_type_map[item["entity"]] = item["entity_type"]
+            cleaned_response = remove_code_blocks(response_str)
+            extracted_data = json.loads(cleaned_response)
+            
+            entities = extracted_data.get("entities", [])
+            for item in entities:
+                entity_type_map[item["entity"]] = item["entity_type"]
+
         except Exception as e:
-            logger.exception(
-                f"Error in search tool: {e}, llm_provider={self.llm_provider}, search_results={search_results}"
-            )
+            logger.error(f"Failed to parse LLM response for entity extraction: {e}", exc_info=True)
 
         entity_type_map = {k.lower().replace(" ", "_"): v.lower().replace(" ", "_") for k, v in entity_type_map.items()}
-        logger.debug(f"Entity type map: {entity_type_map}\n search_results={search_results}")
+        sample_keys = list(entity_type_map.keys())[:3]
+        logger.info(f"Entities parsed: count={len(entity_type_map)} sample={sample_keys}")
         return entity_type_map
 
     def _establish_nodes_relations_from_data(self, data, filters, entity_type_map):
@@ -440,8 +496,8 @@ class MemoryGraph:
             dest_embedding = self.embedding_model.embed(destination)
 
             # search for the nodes with the closest embeddings
-            source_node_search_result = self._search_source_node(source_embedding, filters, threshold=0.9)
-            destination_node_search_result = self._search_destination_node(dest_embedding, filters, threshold=0.9)
+            source_node_search_result = self._search_source_node(source_embedding, filters, threshold=0.75)
+            destination_node_search_result = self._search_destination_node(dest_embedding, filters, threshold=0.75)
 
             # TODO: Create a cypher query and common params for all the cases
             if not destination_node_search_result and source_node_search_result:

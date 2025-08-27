@@ -14,25 +14,47 @@ from database import create_memory_with_pg_storage
 load_dotenv()
 
 # 配置日志
+import logging
+import sys
+
 def setup_logging():
-    """配置应用日志"""
+    """根据环境配置应用日志，生产环境支持文件和控制台双输出"""
     log_level = os.getenv("LOG_LEVEL", "INFO").upper()
     log_format = "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
     
-    # 根据环境配置日志
+    root_logger = logging.getLogger()
+    root_logger.setLevel(log_level)
+
+    # 清除所有现有的 handlers，避免冲突
+    if root_logger.hasHandlers():
+        root_logger.handlers.clear()
+
+    formatter = logging.Formatter(log_format)
+
     if os.getenv("ENVIRONMENT") == "production":
-        # 生产环境：仅输出到 stdout/stderr（交给 Docker 收集），避免文件句柄在多进程中的竞争
-        logging.basicConfig(
-            level=getattr(logging, log_level),
-            format=log_format,
-            handlers=[logging.StreamHandler()]
-        )
+        print("Production logging configured for both file and console.")
+        # 生产环境 1: 文件 Handler
+        log_dir = "/app/logs"
+        os.makedirs(log_dir, exist_ok=True)
+        file_handler = logging.FileHandler(f"{log_dir}/mem0.log")
+        file_handler.setFormatter(formatter)
+        root_logger.addHandler(file_handler)
+
+        # 生产环境 2: 控制台 Handler
+        stream_handler = logging.StreamHandler(sys.stdout)
+        stream_handler.setFormatter(formatter)
+        root_logger.addHandler(stream_handler)
+
     else:
-        # 开发环境：只输出到控制台
-        logging.basicConfig(
-            level=getattr(logging, log_level),
-            format=log_format
-        )
+        # 开发环境: 只输出到控制台
+        handler = logging.StreamHandler(sys.stdout)
+        handler.setFormatter(formatter)
+        root_logger.addHandler(handler)
+        print("Development logging configured. Logs will be printed to the console.")
+
+    # 调整其他库的日志级别
+    logging.getLogger("uvicorn").setLevel(logging.INFO)
+    logging.getLogger("gunicorn.error").setLevel(logging.INFO)
 
 setup_logging()
 
@@ -136,6 +158,8 @@ class SearchRequest(BaseModel):
     run_id: Optional[str] = None
     agent_id: Optional[str] = None
     filters: Optional[Dict[str, Any]] = None
+    limit: Optional[int] = 50
+    threshold: Optional[float] = 1.4
 
 
 @app.post("/configure", summary="Configure Mem0")
