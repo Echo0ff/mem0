@@ -97,7 +97,7 @@ fi
 
 # 第二阶段: 数据库服务
 echo "🗄️  启动数据库服务 (postgres, neo4j, milvus)..."
-docker compose -f docker/docker-compose.prod.yaml --env-file .env.prod up -d postgres neo4j milvus-standalone
+docker compose -f docker/docker-compose.prod.yaml --env-file .env.prod up -d postgres neo4j milvus-standalone attu
 
 # 等待数据库服务就绪
 echo "⏳ 等待数据库服务就绪..."
@@ -121,7 +121,7 @@ done
 
 if [ $wait_time -ge $max_wait ]; then
     echo "❌ 数据库服务启动超时，检查日志:"
-    docker compose -f docker/docker-compose.prod.yaml logs postgres neo4j milvus-standalone
+    docker compose -f docker/docker-compose.prod.yaml logs postgres neo4j milvus-standalone attu
     exit 1
 fi
 
@@ -176,6 +176,7 @@ echo "  - 🐘 PostgreSQL: localhost:15432"
 echo "  - 🕸️  Neo4j: http://localhost:17474"
 echo "  - 🗂️  MinIO: http://localhost:19001 (admin/minioadmin)"
 echo "  - 🔍 Milvus: localhost:19530"
+echo "  - 📊 Attu: http://localhost:28090"
 
 echo ""
 echo "📋 管理命令:"
