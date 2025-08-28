@@ -224,8 +224,8 @@ class SearchRequest(BaseModel):
     run_id: Optional[str] = None
     agent_id: Optional[str] = None
     filters: Optional[Dict[str, Any]] = None
-    limit: Optional[int] = 50
-    threshold: Optional[float] = None
+    limit: Optional[int] = 20
+    threshold: Optional[float] = 1.3
 
 
 @app.post("/configure", summary="Configure Mem0")
@@ -267,7 +267,7 @@ def _run_add_background(messages: List[Dict[str, Any]], params: Dict[str, Any]) 
         _ensure_memory()
 
         # 重试策略：指数退避 + 抖动
-        max_retries = int(os.getenv("BG_MAX_RETRIES", "3"))
+        max_retries = int(os.getenv("BG_MAX_RETRIES", "2"))
         base_sleep = float(os.getenv("BG_RETRY_BASE", "0.6"))
 
         attempt = 1
@@ -295,10 +295,10 @@ def _run_add_background(messages: List[Dict[str, Any]], params: Dict[str, Any]) 
 
 
 # ---- 全局限流器与并发控制 ----
-_BG_MAX_CONCURRENCY = int(os.getenv("BG_MAX_CONCURRENCY", "4"))
+_BG_MAX_CONCURRENCY = int(os.getenv("BG_MAX_CONCURRENCY", "2"))
 _BG_SEM = threading.Semaphore(_BG_MAX_CONCURRENCY)
 
-_BG_RPS = float(os.getenv("BG_RPS", "3"))  # 每秒最大调用次数（LLM/API保护）
+_BG_RPS = float(os.getenv("BG_RPS", "1"))  # 每秒最大调用次数（LLM/API保护）
 _RATE_BUCKET = deque(maxlen=1024)  # 存放最近调用时间戳
 _RATE_LOCK = threading.Lock()
 
