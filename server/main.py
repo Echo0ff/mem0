@@ -3,7 +3,11 @@ import os
 from typing import Any, Dict, List, Optional
 
 from dotenv import load_dotenv
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, BackgroundTasks
+import time
+import random
+import threading
+from collections import deque
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, RedirectResponse
 from pydantic import BaseModel, Field
@@ -250,6 +254,73 @@ def set_config(config: Dict[str, Any]):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+def _run_add_background(messages: List[Dict[str, Any]], params: Dict[str, Any]) -> None:
+    # ---- 轻量并发与限流控制 ----
+    global _BG_SEM, _RATE_BUCKET
+    try:
+        _BG_SEM.acquire()
+
+        # 简单令牌桶：保证每秒调用不超过 BG_RPS 次
+        _rate_limit_consume()
+
+        # 惰性初始化内存实例
+        _ensure_memory()
+
+        # 重试策略：指数退避 + 抖动
+        max_retries = int(os.getenv("BG_MAX_RETRIES", "3"))
+        base_sleep = float(os.getenv("BG_RETRY_BASE", "0.6"))
+
+        attempt = 1
+        while True:
+            try:
+                resp = MEMORY_INSTANCE.add(messages=messages, **params)
+                logging.info(f"[bg-add] success: {resp}")
+                break
+            except Exception as e:
+                if attempt >= max_retries:
+                    logging.exception("[bg-add] failed (max retries reached)")
+                    break
+                sleep_s = base_sleep * (2 ** (attempt - 1))
+                sleep_s = sleep_s + random.uniform(0, 0.3)
+                logging.warning(f"[bg-add] retry #{attempt} in {sleep_s:.2f}s due to: {e}")
+                time.sleep(sleep_s)
+                attempt += 1
+    except Exception:
+        logging.exception("[bg-add] fatal error")
+    finally:
+        try:
+            _BG_SEM.release()
+        except Exception:
+            pass
+
+
+# ---- 全局限流器与并发控制 ----
+_BG_MAX_CONCURRENCY = int(os.getenv("BG_MAX_CONCURRENCY", "4"))
+_BG_SEM = threading.Semaphore(_BG_MAX_CONCURRENCY)
+
+_BG_RPS = float(os.getenv("BG_RPS", "3"))  # 每秒最大调用次数（LLM/API保护）
+_RATE_BUCKET = deque(maxlen=1024)  # 存放最近调用时间戳
+_RATE_LOCK = threading.Lock()
+
+
+def _rate_limit_consume():
+    """阻塞等待直到满足 RPS 限制。"""
+    if _BG_RPS <= 0:
+        return
+    with _RATE_LOCK:
+        now = time.time()
+        window_start = now - 1.0
+        # 清理窗口外的时间戳
+        while _RATE_BUCKET and _RATE_BUCKET[0] < window_start:
+            _RATE_BUCKET.popleft()
+        if len(_RATE_BUCKET) >= _BG_RPS:
+            sleep_s = _RATE_BUCKET[0] + 1.0 - now
+            if sleep_s > 0:
+                time.sleep(sleep_s)
+        # 记录本次调用时间
+        _RATE_BUCKET.append(time.time())
+
+
 @app.post("/memories", summary="Create memories")
 def add_memory(memory_create: MemoryCreate):
     """Store new memories."""
@@ -263,6 +334,22 @@ def add_memory(memory_create: MemoryCreate):
         return JSONResponse(content=response)
     except Exception as e:
         logging.exception("Error in add_memory:")  # This will log the full traceback
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/memories/async", summary="Create memories asynchronously (non-blocking)")
+def add_memory_async(memory_create: MemoryCreate, background_tasks: BackgroundTasks):
+    if not any([memory_create.user_id, memory_create.agent_id, memory_create.run_id]):
+        raise HTTPException(status_code=400, detail="At least one identifier (user_id, agent_id, run_id) is required.")
+
+    params = {k: v for k, v in memory_create.model_dump().items() if v is not None and k != "messages"}
+    messages = [m.model_dump() for m in memory_create.messages]
+
+    try:
+        background_tasks.add_task(_run_add_background, messages, params)
+        return JSONResponse(content={"accepted": True}, status_code=202)
+    except Exception as e:
+        logging.exception("Error in add_memory_async:")
         raise HTTPException(status_code=500, detail=str(e))
 
 
