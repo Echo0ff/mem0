@@ -114,12 +114,12 @@ DEFAULT_CONFIG = {
             "关系抽取要求（严格遵守）：\n"
             "1) 只在已抽取的实体列表之间建立关系，不得引入新实体。\n"
             "2) 关系三元组格式：{\\\"source\\\":..., \\\"relationship\\\":..., \\\"destination\\\":...}。\n"
-            "3) source/destination 必须来自给定实体列表，全部 lower_snake_case。\n"
-            "4) relationship 用大写下划线谓词（如：LIKES、PLAYS、LIVES_IN、IS_A、HAS、WATCHES）；无法匹配明确谓词则跳过。\n"
+            "3) source/destination 必须来自给定实体列表。\n"
+            "4) relationship 用中文动词或动宾短语（如：喜爱、观看、练习钢琴、就职于、学习于、创作…）；无法匹配明确谓词则跳过。\n"
             "5) 最多返回 10 条高置信三元组；置信不足或语义含糊的关系不要返回；不得跨句强联。\n"
             "6) 严禁臆造文本中不存在的关系或隐含前提。\n"
             "7) 仅输出 JSON，不要任何解释。\n"
-            "输出格式：{\\\"entities\\\":[{\\\"source\\\":\\\"user_01\\\",\\\"relationship\\\":\\\"LIKES\\\",\\\"destination\\\":\\\"周杰伦\\\"}]}"
+            "输出格式：{\\\"entities\\\":[{\\\"source\\\":\\\"user_01\\\",\\\"relationship\\\":\\\"喜欢\\\",\\\"destination\\\":\\\"周杰伦\\\"}]}"
         ),
         # 关系抽取使用常规 openai 适配，function call 未命中时将走 JSON fallback
         "llm": {

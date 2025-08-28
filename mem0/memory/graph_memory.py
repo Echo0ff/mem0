@@ -352,8 +352,8 @@ class MemoryGraph:
                 "仅输出 JSON，不要任何解释或代码块。\n"
                 "返回格式: {\"entities\":[{\"source\":...,\"relationship\":...,\"destination\":...}]}\n"
                 "要求:\n"
-                "- source/destination 必须来自给定实体列表（保持原文，不做翻译）。\n"
-                "- relationship 使用英文大写下划线（如 LIKES/PLAYS/WATCHES/IS_A/USES/...）。\n"
+                "- source/destination 必须来自给定实体列表（保持原文中文，不做翻译）。\n"
+                "- relationship 使用中文动词或动宾短语，语义具体（如：喜爱、观看纪录片、练习钢琴、就职于、学习于、创作、参演等），避免含糊词（如：使用、有关、是）。\n"
                 "- 最多 10 条，高置信；不确定则不要返回。\n"
             )
 
@@ -365,7 +365,7 @@ class MemoryGraph:
                 ),
                 # 尝试2：加入示例以降低模型困惑
                 (
-                    f"{base_instr}\n示例: {{\"entities\":[{{\"source\":\"user_01\",\"relationship\":\"LIKES\",\"destination\":\"周杰伦\"}}]}}\n实体列表: {entity_list}\n文本: {data}",
+                    f"{base_instr}\n示例: {{\"entities\":[{{\"source\":\"user_01\",\"relationship\":\"喜爱\",\"destination\":\"周杰伦\"}}]}}\n实体列表: {entity_list}\n文本: {data}",
                     {"type": "json_object"},
                 ),
                 # 尝试3：不带 response_format（兼容部分实现），提示更直白
@@ -518,10 +518,10 @@ class MemoryGraph:
             source_props_str = ", ".join(source_props)
             dest_props_str = ", ".join(dest_props)
 
-            # Delete the specific relationship between nodes
+            # Delete the specific relationship between nodes（关系类型用反引号，支持中文）
             cypher = f"""
             MATCH (n {self.node_label} {{{source_props_str}}})
-            -[r:{relationship}]->
+            -[r:`{relationship}`]->
             (m {self.node_label} {{{dest_props_str}}})
             
             DELETE r
@@ -589,7 +589,7 @@ class MemoryGraph:
                 WITH source, destination
                 CALL db.create.setNodeVectorProperty(destination, 'embedding', $destination_embedding)
                 WITH source, destination
-                MERGE (source)-[r:{relationship}]->(destination)
+                MERGE (source)-[r:`{relationship}`]->(destination)
                 ON CREATE SET 
                     r.created = timestamp(),
                     r.mentions = 1
@@ -633,7 +633,7 @@ class MemoryGraph:
                 WITH source, destination
                 CALL db.create.setNodeVectorProperty(source, 'embedding', $source_embedding)
                 WITH source, destination
-                MERGE (source)-[r:{relationship}]->(destination)
+                MERGE (source)-[r:`{relationship}`]->(destination)
                 ON CREATE SET 
                     r.created = timestamp(),
                     r.mentions = 1
@@ -662,7 +662,7 @@ class MemoryGraph:
                 MATCH (destination)
                 WHERE elementId(destination) = $destination_id
                 SET destination.mentions = coalesce(destination.mentions, 0) + 1
-                MERGE (source)-[r:{relationship}]->(destination)
+                MERGE (source)-[r:`{relationship}`]->(destination)
                 ON CREATE SET 
                     r.created_at = timestamp(),
                     r.updated_at = timestamp(),
@@ -711,7 +711,7 @@ class MemoryGraph:
                 WITH source, destination
                 CALL db.create.setNodeVectorProperty(destination, 'embedding', $dest_embedding)
                 WITH source, destination
-                MERGE (source)-[rel:{relationship}]->(destination)
+                MERGE (source)-[rel:`{relationship}`]->(destination)
                 ON CREATE SET rel.created = timestamp(), rel.mentions = 1
                 ON MATCH SET rel.mentions = coalesce(rel.mentions, 0) + 1
                 RETURN source.name AS source, type(rel) AS relationship, destination.name AS target
