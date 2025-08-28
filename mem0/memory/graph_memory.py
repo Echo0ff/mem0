@@ -733,12 +733,31 @@ class MemoryGraph:
         return results
 
     def _remove_spaces_from_entities(self, entity_list):
-        for item in entity_list:
-            item["source"] = item["source"].lower().replace(" ", "_")
-            # Use the sanitization function for relationships to handle special characters
-            item["relationship"] = sanitize_relationship_for_cypher(item["relationship"].lower().replace(" ", "_"))
-            item["destination"] = item["destination"].lower().replace(" ", "_")
-        return entity_list
+        """Normalize triples safely; skip incomplete or malformed items.
+
+        - 保留 source/relationship/destination 都存在且为非空的项
+        - 小写并将空格替换为下划线
+        - relationship 通过 sanitize_relationship_for_cypher 处理特殊字符
+        """
+        cleaned = []
+        for raw in entity_list:
+            if not isinstance(raw, dict):
+                logger.debug(f"Skip non-dict entity: {raw}")
+                continue
+            src = raw.get("source")
+            rel = raw.get("relationship")
+            dst = raw.get("destination")
+            if not src or not rel or not dst:
+                logger.debug(f"Skip incomplete triple: {raw}")
+                continue
+            try:
+                src_s = str(src).lower().replace(" ", "_")
+                dst_s = str(dst).lower().replace(" ", "_")
+                rel_s = sanitize_relationship_for_cypher(str(rel).lower().replace(" ", "_"))
+                cleaned.append({"source": src_s, "relationship": rel_s, "destination": dst_s})
+            except Exception as e:
+                logger.debug(f"Skip malformed triple {raw}: {e}")
+        return cleaned
 
     def _search_source_node(self, source_embedding, filters, threshold=0.9):
         # Build WHERE conditions
