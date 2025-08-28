@@ -121,17 +121,25 @@ DEFAULT_CONFIG = {
 }
 
 
-# 根据环境变量选择存储类型
+# 根据环境变量选择存储类型（延迟初始化，避免在进程 fork 前建立连接）
 STORAGE_TYPE = os.environ.get("STORAGE_TYPE", "sqlite")
 
-try:
+# 惰性实例，占位
+MEMORY_INSTANCE: Optional[Memory] = None
+
+def build_memory_instance() -> Memory:
     if STORAGE_TYPE.lower() == "postgresql":
-        MEMORY_INSTANCE = create_memory_with_pg_storage(DEFAULT_CONFIG)
-    else:
-        MEMORY_INSTANCE = Memory.from_config(DEFAULT_CONFIG)
-except Exception as e:
-    logging.error("Failed to initialize MEMORY_INSTANCE", exc_info=True)
-    raise e
+        return create_memory_with_pg_storage(DEFAULT_CONFIG)
+    return Memory.from_config(DEFAULT_CONFIG)
+
+def _ensure_memory() -> None:
+    global MEMORY_INSTANCE
+    if MEMORY_INSTANCE is None:
+        try:
+            MEMORY_INSTANCE = build_memory_instance()
+        except Exception as e:
+            logging.error("Failed to initialize MEMORY_INSTANCE", exc_info=True)
+            raise e
 
 app = FastAPI(
     title="Mem0 REST APIs",
@@ -170,7 +178,7 @@ class SearchRequest(BaseModel):
     agent_id: Optional[str] = None
     filters: Optional[Dict[str, Any]] = None
     limit: Optional[int] = 50
-    threshold: Optional[float] = 1.4
+    threshold: Optional[float] = None
 
 
 @app.post("/configure", summary="Configure Mem0")
@@ -191,6 +199,7 @@ def set_config(config: Dict[str, Any]):
             else:
                 merged_config[key] = value
                 
+        # 重新构建实例
         MEMORY_INSTANCE = Memory.from_config(merged_config)
         return {"message": "Configuration set successfully"}
     except Exception as e:
@@ -206,6 +215,7 @@ def add_memory(memory_create: MemoryCreate):
 
     params = {k: v for k, v in memory_create.model_dump().items() if v is not None and k != "messages"}
     try:
+        _ensure_memory()
         response = MEMORY_INSTANCE.add(messages=[m.model_dump() for m in memory_create.messages], **params)
         return JSONResponse(content=response)
     except Exception as e:
@@ -223,6 +233,7 @@ def get_all_memories(
     if not any([user_id, run_id, agent_id]):
         raise HTTPException(status_code=400, detail="At least one identifier is required.")
     try:
+        _ensure_memory()
         params = {
             k: v for k, v in {"user_id": user_id, "run_id": run_id, "agent_id": agent_id}.items() if v is not None
         }
@@ -236,6 +247,7 @@ def get_all_memories(
 def get_memory(memory_id: str):
     """Retrieve a specific memory by ID."""
     try:
+        _ensure_memory()
         return MEMORY_INSTANCE.get(memory_id)
     except Exception as e:
         logging.exception("Error in get_memory:")
@@ -246,6 +258,7 @@ def get_memory(memory_id: str):
 def search_memories(search_req: SearchRequest):
     """Search for memories based on a query."""
     try:
+        _ensure_memory()
         params = {k: v for k, v in search_req.model_dump().items() if v is not None and k != "query"}
         return MEMORY_INSTANCE.search(query=search_req.query, **params)
     except Exception as e:
@@ -265,6 +278,7 @@ def update_memory(memory_id: str, updated_memory: Dict[str, Any]):
         dict: Success message indicating the memory was updated
     """
     try:
+        _ensure_memory()
         return MEMORY_INSTANCE.update(memory_id=memory_id, data=updated_memory)
     except Exception as e:
         logging.exception("Error in update_memory:")
@@ -275,6 +289,7 @@ def update_memory(memory_id: str, updated_memory: Dict[str, Any]):
 def memory_history(memory_id: str):
     """Retrieve memory history."""
     try:
+        _ensure_memory()
         return MEMORY_INSTANCE.history(memory_id=memory_id)
     except Exception as e:
         logging.exception("Error in memory_history:")
@@ -285,6 +300,7 @@ def memory_history(memory_id: str):
 def delete_memory(memory_id: str):
     """Delete a specific memory by ID."""
     try:
+        _ensure_memory()
         MEMORY_INSTANCE.delete(memory_id=memory_id)
         return {"message": "Memory deleted successfully"}
     except Exception as e:
@@ -302,6 +318,7 @@ def delete_all_memories(
     if not any([user_id, run_id, agent_id]):
         raise HTTPException(status_code=400, detail="At least one identifier is required.")
     try:
+        _ensure_memory()
         params = {
             k: v for k, v in {"user_id": user_id, "run_id": run_id, "agent_id": agent_id}.items() if v is not None
         }
@@ -316,6 +333,7 @@ def delete_all_memories(
 def reset_memory():
     """Completely reset stored memories."""
     try:
+        _ensure_memory()
         MEMORY_INSTANCE.reset()
         return {"message": "All memories reset"}
     except Exception as e:
@@ -327,3 +345,7 @@ def reset_memory():
 def home():
     """Redirect to the OpenAPI documentation."""
     return RedirectResponse(url="/docs")
+
+@app.get("/health", include_in_schema=False)
+def health():
+    return {"status": "ok"}

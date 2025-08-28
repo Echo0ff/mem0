@@ -10,17 +10,12 @@ export PYTHONPATH=/app:$PYTHONPATH
 # 创建日志目录
 mkdir -p /app/logs
 
-# 启动应用
-echo "启动 Mem0 应用..."
-exec gunicorn main:app \
+# 启动应用（Uvicorn 多进程）
+echo "启动 Mem0 应用 (Uvicorn) ..."
+exec uvicorn main:app \
+    --host 0.0.0.0 \
+    --port 8000 \
     --workers ${WORKERS:-4} \
-    --worker-class uvicorn.workers.UvicornWorker \
-    --bind 0.0.0.0:8000 \
-    --access-logfile /app/logs/access.log \
-    --error-logfile /app/logs/error.log \
-    --log-level info \
-    --timeout 120 \
-    --keep-alive 2 \
-    --max-requests 1000 \
-    --max-requests-jitter 50 \
-    --preload
+    --loop uvloop \
+    --http httptools \
+    --timeout-keep-alive 5
