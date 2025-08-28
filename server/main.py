@@ -87,6 +87,17 @@ HISTORY_DB_PATH = os.environ.get("HISTORY_DB_PATH", "/app/history/history.db")
 # 使用 OpenAI provider 但配置自定义 base URL
 DEFAULT_CONFIG = {
     "version": "v1.1",
+    # 事实抽取提示词（用于 add 流程的 facts 识别）：严格 JSON，键为 facts，最多 10 条
+    "custom_fact_extraction_prompt": (
+        "你是事实抽取引擎。必须严格输出 JSON，不得包含任何解释、代码块或 Markdown。\n"
+        "规则：\n"
+        "1) 从输入文本中抽取独立、可记忆的简短事实（陈述句），每条≤20字。\n"
+        "2) 去重、去同义改写；严禁臆造上下文不存在的信息。\n"
+        "3) 最多返回 10 条。\n\n"
+        "输出格式（仅此 JSON）：\n"
+        "{\n  \"facts\": [\n    \"喜欢周杰伦\",\n    \"最近在玩原神\"\n  ]\n}\n\n"
+        "输入：\n{INPUT_TEXT}"
+    ),
     "vector_store": {
         "provider": "milvus",
         "config": {
@@ -98,6 +109,28 @@ DEFAULT_CONFIG = {
     "graph_store": {
         "provider": "neo4j",
         "config": {"url": NEO4J_URI, "username": NEO4J_USERNAME, "password": NEO4J_PASSWORD},
+        # 关系抽取补强提示（会注入 EXTRACT_RELATIONS_PROMPT 的 CUSTOM_PROMPT）
+        "custom_prompt": (
+            "关系抽取要求（严格遵守）：\n"
+            "1) 只在已抽取的实体列表之间建立关系，不得引入新实体。\n"
+            "2) 关系三元组格式：{\\\"source\\\":..., \\\"relationship\\\":..., \\\"destination\\\":...}。\n"
+            "3) source/destination 必须来自给定实体列表，全部 lower_snake_case。\n"
+            "4) relationship 用大写下划线谓词（如：LIKES、PLAYS、LIVES_IN、IS_A、HAS、WATCHES）；无法匹配明确谓词则跳过。\n"
+            "5) 最多返回 10 条高置信三元组；置信不足或语义含糊的关系不要返回；不得跨句强联。\n"
+            "6) 严禁臆造文本中不存在的关系或隐含前提。\n"
+            "7) 仅输出 JSON，不要任何解释。\n"
+            "输出格式：{\\\"entities\\\":[{\\\"source\\\":\\\"user_01\\\",\\\"relationship\\\":\\\"LIKES\\\",\\\"destination\\\":\\\"周杰伦\\\"}]}"
+        ),
+        # 关系抽取使用常规 openai 适配，function call 未命中时将走 JSON fallback
+        "llm": {
+            "provider": "openai",
+            "config": {
+                "api_key": GLM_API_KEY or "sk-dummy-key",
+                "model": GLM_MODEL,
+                "temperature": 0.2,
+                "openai_base_url": GLM_BASE_URL,
+            },
+        },
     },
     "llm": {
         "provider": "openai",
@@ -117,6 +150,16 @@ DEFAULT_CONFIG = {
             "embedding_dims": 1024,  # Explicitly set to match BAAI/bge-large-zh-v1.5 model dimensions
         }
     },
+    # 更新决策提示：控制 ADD/UPDATE/DELETE 与 NONE
+    "custom_update_memory_prompt": (
+        "根据‘新事实’与‘已存在记忆’生成操作列表。\n"
+        "规则：\n"
+        "1) 去重：如与已存事实语义等价（或同义改写），返回 NONE。\n"
+        "2) 冲突：同一槽位冲突时用 UPDATE（携带 previous_memory），不要重复 ADD。\n"
+        "3) 归一：记忆用简短陈述（≤20字），避免形容词堆砌。\n"
+        "4) 一次最多 8 条操作。\n"
+        "仅输出 JSON：{\\\"memory\\\":[{\\\"id\\\":\\\"0\\\",\\\"event\\\":\\\"ADD\\\",\\\"text\\\":\\\"喜欢周杰伦\\\"}]}"
+    ),
     "history_db_path": HISTORY_DB_PATH,
 }
 

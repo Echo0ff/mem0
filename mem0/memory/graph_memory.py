@@ -322,8 +322,73 @@ class MemoryGraph:
         )
 
         entities = []
-        if extracted_entities.get("tool_calls"):
+        # 1) 优先走工具调用
+        if isinstance(extracted_entities, dict) and extracted_entities.get("tool_calls"):
             entities = extracted_entities["tool_calls"][0].get("arguments", {}).get("entities", [])
+
+        # 2) Fallback：若无工具调用，尝试让模型直接返回 JSON（多轮尝试 + 更严 schema）
+        if not entities:
+            import re as _re
+            import json as _json
+            from mem0.memory.utils import remove_code_blocks as _rcb
+
+            def _extract_json_blob(text: str) -> dict:
+                """从混杂文本中提取第一个 JSON 对象并解析。"""
+                cleaned = _rcb(text or "")
+                try:
+                    return _json.loads(cleaned)
+                except Exception:
+                    # 退化：正则匹配最外层 { ... }
+                    m = _re.search(r"\{[\s\S]*\}", cleaned)
+                    if m:
+                        try:
+                            return _json.loads(m.group(0))
+                        except Exception:
+                            return {}
+                    return {}
+
+            entity_list = list(entity_type_map.keys())
+            base_instr = (
+                "仅输出 JSON，不要任何解释或代码块。\n"
+                "返回格式: {\"entities\":[{\"source\":...,\"relationship\":...,\"destination\":...}]}\n"
+                "要求:\n"
+                "- source/destination 必须来自给定实体列表（保持原文，不做翻译）。\n"
+                "- relationship 使用英文大写下划线（如 LIKES/PLAYS/WATCHES/IS_A/USES/...）。\n"
+                "- 最多 10 条，高置信；不确定则不要返回。\n"
+            )
+
+            attempts = [
+                # 尝试1：严格 schema + response_format 要求 JSON
+                (
+                    f"{base_instr}\n实体列表: {entity_list}\n文本: {data}",
+                    {"type": "json_object"},
+                ),
+                # 尝试2：加入示例以降低模型困惑
+                (
+                    f"{base_instr}\n示例: {{\"entities\":[{{\"source\":\"user_01\",\"relationship\":\"LIKES\",\"destination\":\"周杰伦\"}}]}}\n实体列表: {entity_list}\n文本: {data}",
+                    {"type": "json_object"},
+                ),
+                # 尝试3：不带 response_format（兼容部分实现），提示更直白
+                (
+                    f"请直接给出 JSON: {{\"entities\":[{{\"source\":...,\"relationship\":...,\"destination\":...}}]}}\n实体列表: {entity_list}\n文本: {data}",
+                    None,
+                ),
+            ]
+
+            for idx, (prompt, rfmt) in enumerate(attempts, start=1):
+                try:
+                    kwargs = {"messages": [{"role": "user", "content": prompt}]}
+                    if rfmt:
+                        kwargs["response_format"] = rfmt
+                    fb = self.llm.generate_response(**kwargs)
+                    parsed = _extract_json_blob(fb)
+                    ents = parsed.get("entities", []) if isinstance(parsed, dict) else []
+                    if isinstance(ents, list) and ents:
+                        entities = ents
+                        logger.debug(f"Relations fallback succeeded at attempt #{idx}, count={len(entities)}")
+                        break
+                except Exception as _e:
+                    logger.debug(f"Relations fallback attempt #{idx} failed: {_e}")
 
         entities = self._remove_spaces_from_entities(entities)
         logger.debug(f"Extracted entities: {entities}")
