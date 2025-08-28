@@ -15,7 +15,7 @@ echo "启动 Mem0 应用 (Uvicorn) ..."
 exec uvicorn main:app \
     --host 0.0.0.0 \
     --port 8000 \
-    --workers ${WORKERS:-4} \
+    --workers ${WORKERS:-2} \
     --loop uvloop \
     --http httptools \
     --timeout-keep-alive 5
