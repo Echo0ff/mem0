@@ -322,8 +322,73 @@ class MemoryGraph:
         )
 
         entities = []
-        if extracted_entities.get("tool_calls"):
+        # 1) 优先走工具调用
+        if isinstance(extracted_entities, dict) and extracted_entities.get("tool_calls"):
             entities = extracted_entities["tool_calls"][0].get("arguments", {}).get("entities", [])
+
+        # 2) Fallback：若无工具调用，尝试让模型直接返回 JSON（多轮尝试 + 更严 schema）
+        if not entities:
+            import re as _re
+            import json as _json
+            from mem0.memory.utils import remove_code_blocks as _rcb
+
+            def _extract_json_blob(text: str) -> dict:
+                """从混杂文本中提取第一个 JSON 对象并解析。"""
+                cleaned = _rcb(text or "")
+                try:
+                    return _json.loads(cleaned)
+                except Exception:
+                    # 退化：正则匹配最外层 { ... }
+                    m = _re.search(r"\{[\s\S]*\}", cleaned)
+                    if m:
+                        try:
+                            return _json.loads(m.group(0))
+                        except Exception:
+                            return {}
+                    return {}
+
+            entity_list = list(entity_type_map.keys())
+            base_instr = (
+                "仅输出 JSON，不要任何解释或代码块。\n"
+                "返回格式: {\"entities\":[{\"source\":...,\"relationship\":...,\"destination\":...}]}\n"
+                "要求:\n"
+                "- source/destination 必须来自给定实体列表（保持原文中文，不做翻译）。\n"
+                "- relationship 使用中文动词或动宾短语，语义具体（如：喜爱、观看纪录片、练习钢琴、就职于、学习于、创作、参演等），避免含糊词（如：使用、有关、是）。\n"
+                "- 最多 10 条，高置信；不确定则不要返回。\n"
+            )
+
+            attempts = [
+                # 尝试1：严格 schema + response_format 要求 JSON
+                (
+                    f"{base_instr}\n实体列表: {entity_list}\n文本: {data}",
+                    {"type": "json_object"},
+                ),
+                # 尝试2：加入示例以降低模型困惑
+                (
+                    f"{base_instr}\n示例: {{\"entities\":[{{\"source\":\"user_01\",\"relationship\":\"喜爱\",\"destination\":\"周杰伦\"}}]}}\n实体列表: {entity_list}\n文本: {data}",
+                    {"type": "json_object"},
+                ),
+                # 尝试3：不带 response_format（兼容部分实现），提示更直白
+                (
+                    f"请直接给出 JSON: {{\"entities\":[{{\"source\":...,\"relationship\":...,\"destination\":...}}]}}\n实体列表: {entity_list}\n文本: {data}",
+                    None,
+                ),
+            ]
+
+            for idx, (prompt, rfmt) in enumerate(attempts, start=1):
+                try:
+                    kwargs = {"messages": [{"role": "user", "content": prompt}]}
+                    if rfmt:
+                        kwargs["response_format"] = rfmt
+                    fb = self.llm.generate_response(**kwargs)
+                    parsed = _extract_json_blob(fb)
+                    ents = parsed.get("entities", []) if isinstance(parsed, dict) else []
+                    if isinstance(ents, list) and ents:
+                        entities = ents
+                        logger.debug(f"Relations fallback succeeded at attempt #{idx}, count={len(entities)}")
+                        break
+                except Exception as _e:
+                    logger.debug(f"Relations fallback attempt #{idx} failed: {_e}")
 
         entities = self._remove_spaces_from_entities(entities)
         logger.debug(f"Extracted entities: {entities}")
@@ -453,10 +518,10 @@ class MemoryGraph:
             source_props_str = ", ".join(source_props)
             dest_props_str = ", ".join(dest_props)
 
-            # Delete the specific relationship between nodes
+            # Delete the specific relationship between nodes（关系类型用反引号，支持中文）
             cypher = f"""
             MATCH (n {self.node_label} {{{source_props_str}}})
-            -[r:{relationship}]->
+            -[r:`{relationship}`]->
             (m {self.node_label} {{{dest_props_str}}})
             
             DELETE r
@@ -524,7 +589,7 @@ class MemoryGraph:
                 WITH source, destination
                 CALL db.create.setNodeVectorProperty(destination, 'embedding', $destination_embedding)
                 WITH source, destination
-                MERGE (source)-[r:{relationship}]->(destination)
+                MERGE (source)-[r:`{relationship}`]->(destination)
                 ON CREATE SET 
                     r.created = timestamp(),
                     r.mentions = 1
@@ -568,7 +633,7 @@ class MemoryGraph:
                 WITH source, destination
                 CALL db.create.setNodeVectorProperty(source, 'embedding', $source_embedding)
                 WITH source, destination
-                MERGE (source)-[r:{relationship}]->(destination)
+                MERGE (source)-[r:`{relationship}`]->(destination)
                 ON CREATE SET 
                     r.created = timestamp(),
                     r.mentions = 1
@@ -597,7 +662,7 @@ class MemoryGraph:
                 MATCH (destination)
                 WHERE elementId(destination) = $destination_id
                 SET destination.mentions = coalesce(destination.mentions, 0) + 1
-                MERGE (source)-[r:{relationship}]->(destination)
+                MERGE (source)-[r:`{relationship}`]->(destination)
                 ON CREATE SET 
                     r.created_at = timestamp(),
                     r.updated_at = timestamp(),
@@ -646,7 +711,7 @@ class MemoryGraph:
                 WITH source, destination
                 CALL db.create.setNodeVectorProperty(destination, 'embedding', $dest_embedding)
                 WITH source, destination
-                MERGE (source)-[rel:{relationship}]->(destination)
+                MERGE (source)-[rel:`{relationship}`]->(destination)
                 ON CREATE SET rel.created = timestamp(), rel.mentions = 1
                 ON MATCH SET rel.mentions = coalesce(rel.mentions, 0) + 1
                 RETURN source.name AS source, type(rel) AS relationship, destination.name AS target
@@ -668,12 +733,31 @@ class MemoryGraph:
         return results
 
     def _remove_spaces_from_entities(self, entity_list):
-        for item in entity_list:
-            item["source"] = item["source"].lower().replace(" ", "_")
-            # Use the sanitization function for relationships to handle special characters
-            item["relationship"] = sanitize_relationship_for_cypher(item["relationship"].lower().replace(" ", "_"))
-            item["destination"] = item["destination"].lower().replace(" ", "_")
-        return entity_list
+        """Normalize triples safely; skip incomplete or malformed items.
+
+        - 保留 source/relationship/destination 都存在且为非空的项
+        - 小写并将空格替换为下划线
+        - relationship 通过 sanitize_relationship_for_cypher 处理特殊字符
+        """
+        cleaned = []
+        for raw in entity_list:
+            if not isinstance(raw, dict):
+                logger.debug(f"Skip non-dict entity: {raw}")
+                continue
+            src = raw.get("source")
+            rel = raw.get("relationship")
+            dst = raw.get("destination")
+            if not src or not rel or not dst:
+                logger.debug(f"Skip incomplete triple: {raw}")
+                continue
+            try:
+                src_s = str(src).lower().replace(" ", "_")
+                dst_s = str(dst).lower().replace(" ", "_")
+                rel_s = sanitize_relationship_for_cypher(str(rel).lower().replace(" ", "_"))
+                cleaned.append({"source": src_s, "relationship": rel_s, "destination": dst_s})
+            except Exception as e:
+                logger.debug(f"Skip malformed triple {raw}: {e}")
+        return cleaned
 
     def _search_source_node(self, source_embedding, filters, threshold=0.9):
         # Build WHERE conditions
